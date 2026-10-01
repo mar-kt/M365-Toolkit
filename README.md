@@ -34,7 +34,7 @@ Disconnect-M365Graph
 
 ## About AI-Generated Content
 
-Several scripts, sections of this documentation, and translations were updated or generated with the assistance of AI—primarily to modernize legacy cmdlets to the current Microsoft Graph API and SDK.
+Several scripts, sections of this documentation, and translations were updated or generated with the assistance of AI, primarily to modernize legacy cmdlets to the current Microsoft Graph API and SDK.
 
 Because this toolkit originated from personal consulting engagements in Spanish and is maintained on an "as-needed" basis, you might still encounter areas in need of refinement. If something doesn't work for your tenant, feel free to fork the repository, tweak it, and submit a pull request.
 
