@@ -15,7 +15,7 @@ if (-not $global:M365ToolkitClientName) {
 }
 
 function Show-Menu {
-    Clear-Host
+    try { Clear-Host } catch {}
     $activeClient = if ($global:M365ToolkitClientName) { $global:M365ToolkitClientName } else { "General" }
     
     Write-Host "========================================" -ForegroundColor Cyan
@@ -151,7 +151,7 @@ do {
             & $scriptPath
             Pause
         }
-        'C' -or 'c' {
+        'C' {
             $newClient = Read-Host "Enter new Client Profile identifier [Current: $global:M365ToolkitClientName]"
             if ($newClient -and $newClient.Trim() -ne "") {
                 $global:M365ToolkitClientName = $newClient.Trim()
@@ -159,11 +159,11 @@ do {
             }
             Start-Sleep -Seconds 1
         }
-        'D' -or 'd' {
+        'D' {
             Disconnect-M365
             Pause
         }
-        'Q' -or 'q' {
+        'Q' {
             Write-Host "`nGoodbye!" -ForegroundColor Green
             return
         }

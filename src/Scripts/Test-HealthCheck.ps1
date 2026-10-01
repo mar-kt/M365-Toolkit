@@ -48,24 +48,30 @@ if ($missingFunctions.Count -gt 0) {
     exit 1
 }
 
-# 3. Testing Scripts Syntax
+# 3. Testing Scripts Syntax via AST Parser
 Write-Host "`n3. Testing Script Syntax across all tools..."
-$scriptFiles = Get-ChildItem -Path $PSScriptRoot -Filter "*.ps1" | Where-Object { $_.Name -ne "Test-HealthCheck.ps1" }
+$rootDir = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+$scriptFiles = Get-ChildItem -Path $rootDir -Recurse -Filter "*.ps1" | Where-Object { $_.Name -ne "Test-HealthCheck.ps1" }
 
 $syntaxErrors = 0
 foreach ($s in $scriptFiles) {
-    try {
-        $null = Get-Command $s.FullName -ErrorAction Stop
-        Write-Host " [OK] Syntax OK: $($s.Name)" -ForegroundColor Green
-    }
-    catch {
-        Write-Host " [FAIL] Syntax error in $($s.Name): $_" -ForegroundColor Red
+    $tokens = $null
+    $errors = $null
+    $null = [System.Management.Automation.Language.Parser]::ParseFile($s.FullName, [ref]$tokens, [ref]$errors)
+    if ($errors -and $errors.Count -gt 0) {
+        Write-Host " [FAIL] Syntax error in $($s.FullName):" -ForegroundColor Red
+        foreach ($err in $errors) {
+            Write-Host "        Line $($err.Extent.StartLineNumber): $($err.Message)" -ForegroundColor Red
+        }
         $syntaxErrors++
+    }
+    else {
+        Write-Host " [OK] Syntax OK: $($s.Name)" -ForegroundColor Green
     }
 }
 
 if ($syntaxErrors -gt 0) {
-    Write-Error "Found $syntaxErrors script syntax errors."
+    Write-Error "Found $syntaxErrors script syntax error(s)."
     exit 1
 }
 
