@@ -1,27 +1,31 @@
-# Script para obtener estadísticas de buzones en Exchange Online
-# [Refactored]: Uses _Bootstrap and Export-AdminReport
+<#
+.SYNOPSIS
+    Quick summary report of user mailbox and archive sizes.
+.DESCRIPTION
+    Retrieves primary and archive mailbox statistics for active user accounts.
+#>
 
 # ----------------- MODULE AUTO-LOADING -----------------
 . $PSScriptRoot/_Bootstrap.ps1
 # -------------------------------------------------------
 
-# Conectar a Exchange Online (Module Function)
+# Connect to Exchange Online
 Connect-Exchange
 
-Write-Host "Obteniendo estadísticas de buzones..." -ForegroundColor Cyan
+Write-Host "Retrieving mailbox statistics..." -ForegroundColor Cyan
 
-# Obtener todos los buzones con sus estadísticas
+# Query all user mailboxes
 $mailboxes = Get-Mailbox -ResultSize Unlimited | Where-Object { $_.RecipientTypeDetails -eq "UserMailbox" }
 
 $results = @()
 
 foreach ($mailbox in $mailboxes) {
-    Write-Host "Procesando: $($mailbox.DisplayName)..." -ForegroundColor Yellow
+    Write-Host "Processing: $($mailbox.DisplayName)..." -ForegroundColor Yellow
     
-    # Obtener estadísticas del buzón principal
+    # Query primary mailbox stats
     $stats = Get-MailboxStatistics -Identity $mailbox.UserPrincipalName -ErrorAction SilentlyContinue
     
-    # Obtener estadísticas del buzón de archivo (si existe)
+    # Query archive mailbox stats if enabled
     $archiveStats = $null
     if ($mailbox.ArchiveStatus -eq "Active") {
         $archiveStats = Get-MailboxStatistics -Identity $mailbox.UserPrincipalName -Archive -ErrorAction SilentlyContinue
@@ -38,7 +42,6 @@ foreach ($mailbox in $mailboxes) {
     $results += $result
 }
 
-# Export
+# Export report
 Export-AdminReport -InputObject $results -ReportName "SimpleMailboxStats" -AutoOpen
-Write-Host "Done."
-
+Write-Host "Done." -ForegroundColor Green

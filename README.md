@@ -1,138 +1,167 @@
-# M365 Toolkit 🚀
+# M365 Toolkit
 
-Un conjunto integral, modular y profesional de herramientas en **PowerShell 7+** diseñado para la administración avanzada, auditoría de seguridad, cumplimiento normativo (eDiscovery/Purview) e inventario en entornos **Microsoft 365 / Exchange Online**.
+A comprehensive, modular, and professional **PowerShell 7+** toolkit designed for advanced administration, security auditing, compliance (eDiscovery/Purview), and inventory reporting across **Microsoft 365 / Exchange Online** environments.
 
-Diseñado para administradores de sistemas (SysAdmins), consultores e ingenieros de soporte que gestionan múltiples tenants y clientes con total aislamiento de datos.
+This repository was born from the combination of several tools I have created, gathered, or adapted over the years based on requests across various consulting engagements, and I used to carry them on a USB flash drive when performing on-site work. For this reason, I cannot directly credit everyone whose code or ideas I may have drawn from depending on the specific tool.
 
----
-
-## 🌟 Características Principales
-
-### 🔒 Seguridad y Cumplimiento
-- **Auditoría de Reenvíos**: Detección de redirecciones SMTP (servidor) y reglas de bandeja de entrada (cliente) hacia dominios externos o cuentas no autorizadas.
-- **Control de Permisos de Delegación**: Auditoría de permisos `FullAccess` y `SendAs`, aislando accesos anómalos de las cuentas estándar del sistema.
-- **Auditoría MFA Moderna (Microsoft Graph)**: Detección de métodos reales registrados (Microsoft Authenticator, FIDO2, Phone, Windows Hello), 100% compatible con directivas de Acceso Condicional y Security Defaults.
-- **Extracción de Archivos Online (Purview / eDiscovery)**: Motor avanzado para consultar y exportar buzones de archivo histórico mediante traducción de identificadores EWS Base64 a consultas KQL hexadecimales optimizadas (`folderid:HEX`).
-
-### 📦 Almacenamiento y Cuotas
-- **Reporte Detallado de Buzones**: Análisis de tamaño de buzón principal, papelera/elementos eliminados, Sent Items, espacio libre y estado del buzón de archivo online.
-- **Exportación Aislada por Cliente**: Generación automática de reportes en Excel estilizado (vía `ImportExcel`) o CSV UTF-8 organizados automáticamente por Cliente y Fecha (`output/<Cliente>/<YYYY-MM-DD>/`).
-
-### 👤 Gestión de Identidades y Ciclo de Vida
-- **Reciclaje de Cuentas (Offboarding / Reasignación)**: Renombrado seguro de usuarios para nuevos empleados, manteniendo el correo anterior como alias secundario (`smtp:alias`) y purgando datos personales residuales.
-- **Detección de Cuentas Inactivas (Stale Mailboxes)**: Identificación de cuentas sin inicio de sesión (>90 días) para optimización y ahorro de licencias.
-- **Inventario de Licencias Moderno (Microsoft Graph)**: Auditoría de SKUs asignadas con mapeo de nombres amigables (ej: `ENTERPRISEPACK`, `SPE_E3`).
-
-### 💾 Backups Locales y Búsqueda Desconectada
-- **Indexación SQLite**: Indexación ultrarrápida de paquetes de cumplimiento (`.zip`) en una base de datos relacional local (`backups.db`).
-- **Búsqueda Histórica sin Conexión**: Motor de consulta por asunto, remitente o destinatario sin requerir conexión continua a la nube.
-- **Dashboard de Respaldos**: Verificación de salud y detección de respaldos desactualizados (>30 días).
+Designed for System Administration using Microsoft 365 with Business Standard licensing, common in smaller companies where challenges like mailbox storage limits and email backups can become problematic, or where rapid user administration is needed without relying on specialized or paid third-party connectors.
 
 ---
 
-## 📁 Estructura del Proyecto
+## Notes & Administrative Permissions
 
-```text
-M365-Toolkit/
-├── Start-Console.ps1             # Lanzador rápido de la consola interactiva
-├── src/
-│   ├── ExchangeAdminTools/       # Módulo central reutilizable
-│   │   ├── ExchangeAdminTools.psd1 # Manifiesto del módulo (v1.0.0)
-│   │   ├── ExchangeAdminTools.psm1 # Cargador dinámico de funciones
-│   │   └── Public/               # Funciones públicas exportadas
-│   │       ├── Connect-Exchange.ps1
-│   │       ├── Connect-M365Graph.ps1 # Conexión optimizada a Graph
-│   │       ├── Disconnect-M365.ps1   # Cierre limpio de sesiones
-│   │       ├── ConvertTo-Gb.ps1
-│   │       └── Export-AdminReport.ps1 # Enrutamiento aislado por cliente
-│   └── Scripts/                  # Suite de scripts operativos
-│       ├── _Bootstrap.ps1        # Inicializador determinista del módulo
-│       ├── Start-ExchangeConsole.ps1 # Consola interactiva (Menú CLI)
-│       ├── Test-HealthCheck.ps1  # Verificación integral del sistema
-│       ├── Start-ArchiveSearch.ps1
-│       ├── Index-Backups.ps1
-│       ├── Search-Backups.ps1
-│       ├── Get-BackupReport.ps1
-│       ├── Get-MailboxSizeReport.ps1
-│       ├── Get-ForwardingReport.ps1
-│       ├── Get-MailboxPermissionReport.ps1
-│       ├── Get-StaleMailboxes.ps1
-│       ├── Get-LicenseReport.ps1   # Basado en Microsoft.Graph.Users
-│       ├── Get-MFAStatusReport.ps1 # Basado en Microsoft.Graph.Identity.SignIns
-│       ├── Update-UserIdentity.ps1
-│       └── Search-DeliveryStatus.ps1
-├── templates/                    # Plantillas de exportación
-│   └── MailboxReport.xltx
-├── output/                       # Directorio de salida aislado (ignorado en Git)
-│   └── <Cliente>/<YYYY-MM-DD>/   # Reportes organizados automáticamente
-└── docs/                         # Documentación técnica adicional
+- Accounts used for administration should ideally have **Global Administrator** privileges to access all toolkit features. Creating a dedicated administrative account for this purpose is recommended.
+- If Global Administrator access is unavailable, the minimum required permissions by function include:
+  - **Exchange Online Plan 1** (or higher) license to access EWS.
+  - Roles:
+    - **Message Reviewer**: To read and inspect message items across user mailboxes.
+    - **Security Reader**: To access audit logs and security-related telemetry.
+    - **User Administrator**: To manage users and identity properties.
+    - **eDiscovery Manager** (in Microsoft Purview): Mandatory to create and start Compliance Searches.
+- Even with assigned roles, certain features may fail if they are strictly exclusive to Global Administrators or restricted by the active tenant licensing tier.
+- You can, and should, always disconnect your sessions after you are done as a good security practice, even if the interactive console handles it for you:
+
+```powershell
+# Disconnect all the active Microsoft Graph and Exchange sessions
+Disconnect-M365
+# Disconnect all the active Exchange sessions
+Disconnect-ExchangeOnline
+# Disconnect all the active Microsoft Graph sessions
+Disconnect-M365Graph
 ```
 
 ---
 
-## ⚙️ Requisitos
+## About AI-Generated Content
+
+Several scripts, sections of this documentation, and translations were updated or generated with the assistance of AI—primarily to modernize legacy cmdlets to the current Microsoft Graph API and SDK.
+
+Because this toolkit originated from personal consulting engagements in Spanish and is maintained on an "as-needed" basis, you might still encounter areas in need of refinement. If something doesn't work for your tenant, feel free to fork the repository, tweak it, and submit a pull request.
+
+---
+
+## Key Features
+
+### Security & Compliance
+- **Forwarding Rules Audit** (`Get-ForwardingReport.ps1`): Identifies both admin-configured SMTP redirects (server-side) and user Inbox rules (client-side) forwarding or redirecting mail to external or unauthorized addresses.
+- **Mailbox Delegation & Permissions Audit** (`Get-MailboxPermissionReport.ps1`): Scans `FullAccess` and `SendAs` permissions across all mailboxes, filtering out default system accounts and SIDs to highlight anomalous access.
+- **Modern MFA Audit (Microsoft Graph)** (`Get-MFAStatusReport.ps1`): Inspects actual registered authentication methods (Microsoft Authenticator, FIDO2, Phone/SMS, Windows Hello), 100% compatible with modern Conditional Access policies and Security Defaults.
+- **Online Archive Extraction (Purview / eDiscovery)** (`Start-ArchiveSearch.ps1`): Targeted engine to query and extract Online Archive mailboxes by translating EWS Base64 folder IDs into optimized hexadecimal KQL queries (`folderid:HEX`). It creates and initiates Purview export jobs ready for local backup downloads.
+
+### Storage & Quotas
+- **Detailed Mailbox Sizing Report** (`Get-MailboxSizeReport.ps1`): Analyzes primary mailbox size, dumpster/deleted items, Sent Items, quota free space, and Online Archive enablement and sizing.
+- **Client-Isolated Reporting** (`Export-AdminReport.ps1`): Automatically generates styled Excel workbooks (via `ImportExcel`) or UTF-8 CSVs organized neatly by Client and Date (`output/<Client>/<YYYY-MM-DD>/`).
+
+### Identity & Lifecycle Management
+- **Account Recycling (Offboarding & Reassignment)** (`Update-UserIdentity.ps1`): Safely reassigns accounts to new employees by updating identity attributes, converting the previous employee's address into a secondary alias (`smtp:alias`) to retain historical mail, and purging stale personal directory metadata.
+- **Stale Mailbox Detection** (`Get-StaleMailboxes.ps1`): Detects inactive mailboxes with no recent sign-in activity (>90 days) to reclaim unused licenses and optimize subscription costs.
+- **Modern License Inventory (Microsoft Graph)** (`Get-LicenseReport.ps1`): Catalogs assigned license SKUs with friendly commercial product names (e.g., `ENTERPRISEPACK`, `SPE_E3`).
+
+### Local Backups & Offline Search
+- **SQLite Indexing** (`Index-Backups.ps1`): Indexes Purview compliance export packages (`.zip`) into a local relational database (`backups.db`).
+- **Offline Message Search** (`Search-Backups.ps1`): Fast search engine querying historical emails by subject, sender, or recipient without requiring a continuous cloud connection.
+- **Backup Health Dashboard** (`Get-BackupReport.ps1`): Verifies local archive integrity.
+
+---
+
+## Project Structure
+
+```text
+M365-Toolkit/
+├── Start-Console.ps1             # Direct launcher for the interactive console
+├── src/
+│   ├── ExchangeAdminTools/       # Core reusable module
+│   │   ├── ExchangeAdminTools.psd1 # Module manifest (v1.0.0)
+│   │   ├── ExchangeAdminTools.psm1 # Dynamic function loader
+│   │   └── Public/               # Exported public cmdlets
+│   │       ├── Connect-Exchange.ps1
+│   │       ├── Connect-M365Graph.ps1 # Scoped Microsoft Graph connection
+│   │       ├── Disconnect-M365.ps1   # Clean session termination & cache wipe
+│   │       ├── ConvertTo-Gb.ps1
+│   │       └── Export-AdminReport.ps1 # Multi-client output routing
+│   └── Scripts/                  # Operational tool suite
+│       ├── _Bootstrap.ps1        # Deterministic module bootstrapper
+│       ├── Start-ExchangeConsole.ps1 # Interactive CLI command center
+│       ├── Test-HealthCheck.ps1  # Automated health and syntax verification
+│       ├── Start-ArchiveSearch.ps1 # Targeted archive compliance search & export
+│       ├── Index-Backups.ps1     # SQLite indexer for local backup ZIPs
+│       ├── Search-Backups.ps1    # Offline search tool
+│       ├── Get-BackupReport.ps1  # Backup health dashboard
+│       ├── Get-MailboxSizeReport.ps1 # Sizing and storage quota analyzer
+│       ├── Get-ForwardingReport.ps1  # Security forwarding auditor
+│       ├── Get-MailboxPermissionReport.ps1 # Mailbox delegation auditor
+│       ├── Get-StaleMailboxes.ps1    # Inactive mailbox scanner
+│       ├── Get-LicenseReport.ps1     # Powered by Microsoft.Graph.Users
+│       ├── Get-MFAStatusReport.ps1   # Powered by Microsoft.Graph.Identity.SignIns
+│       ├── Update-UserIdentity.ps1   # Employee offboard & mailbox recycling
+│       └── Search-DeliveryStatus.ps1 # Email delivery tracker (MessageTrace)
+├── templates/                    # Report templates
+│   └── MailboxReport.xltx
+├── output/                       # Isolated output directory (Git-ignored)
+│   └── <Client>/<YYYY-MM-DD>/   # Auto-organized export reports
+└── docs/                         # Additional documentation
+```
+
+---
+
+## Requirements
 
 1. **PowerShell 7+** (`pwsh`)
-2. **Módulos de PowerShell**:
+2. **PowerShell Modules**:
    ```powershell
-   # 1. Exchange Online Management (Mandatorio)
+   # 1. Exchange Online Management (Mandatory)
    Install-Module -Name ExchangeOnlineManagement -Scope CurrentUser
 
-   # 2. Microsoft Graph (Submódulos ligeros y rápidos)
+   # 2. Microsoft Graph (Lightweight sub-modules only)
    Install-Module -Name Microsoft.Graph.Authentication -Scope CurrentUser
    Install-Module -Name Microsoft.Graph.Users -Scope CurrentUser
    Install-Module -Name Microsoft.Graph.Identity.SignIns -Scope CurrentUser
 
-   # 3. Reportes en Excel Estilizado (Opcional, altamente recomendado)
+   # 2.1. Full Microsoft Graph (all modules, about 148 modules, not recommended)
+   Install-Module -Name Microsoft.Graph -Scope CurrentUser
+
+   # 3. Styled Excel Reports (Optional, highly recommended)
    Install-Module -Name ImportExcel -Scope CurrentUser
    ```
-3. **Herramientas Externas**:
-   - `sqlite3` (requerido únicamente si se utiliza el indexador de copias de seguridad locales).
+
+3. **External Tools**:
+   - `sqlite3` (required only when indexing local backup archives into `backups.db`).
 
 ---
 
-## 🚀 Inicio Rápido
+## Quick Start
 
-### 1. Verificación del Entorno
-Valida que todos los módulos y scripts cargan correctamente y sin errores de sintaxis:
+### 1. Environment Verification
+Validate that all modules and scripts load properly without syntax or import errors:
 ```powershell
 ./src/Scripts/Test-HealthCheck.ps1
 ```
 
-### 2. Consola Interactiva
-Inicia el centro de comando para seleccionar cualquier tarea administrativa desde un menú guiado:
+### 2. Interactive Console
+Launch the unified command center to select any administrative task through an intuitive CLI menu:
 ```powershell
 ./Start-Console.ps1
 ```
 
-Desde la consola puedes:
-- Presionar **`C`** para cambiar el nombre del cliente activo (todos los reportes se guardarán en `output/<Cliente>/<Fecha>/`).
-- Presionar **`D`** para desconectar sesiones y purgar tokens en caché antes de cambiar de cliente.
+From the console you can:
+- Press **`C`** to set or change the active Client profile (all exports will be routed to `output/<Client>/<Date>/`).
+- Press **`D`** to disconnect sessions and purge cached tokens before switching to another tenant.
 
-### 3. Ejecución Directa de Scripts
-Cada script puede invocarse de manera independiente pasando los parámetros correspondientes:
+### 3. Direct Script Execution
+Each tool can also be run independently with dedicated parameters:
 ```powershell
-# Auditoría de reenvíos anómalos
+# Audit unauthorized or external forwarding rules
 ./src/Scripts/Get-ForwardingReport.ps1
 
-# Auditoría moderna de métodos MFA
+# Modern MFA methods audit
 ./src/Scripts/Get-MFAStatusReport.ps1
 
-# Inventario de licencias M365
+# M365 license assignment inventory
 ./src/Scripts/Get-LicenseReport.ps1
 
-# Buscar buzones inactivos hace más de 60 días
+# Find mailboxes inactive for more than 60 days
 ./src/Scripts/Get-StaleMailboxes.ps1 -Days 60
 
-# Búsqueda y exportación de archivo online
-./src/Scripts/Start-ArchiveSearch.ps1 -UserUpn "usuario@empresa.com" -KickOffExport $true
+# Targeted Online Archive search and export
+./src/Scripts/Start-ArchiveSearch.ps1 -UserUpn "user@company.com" -KickOffExport $true
 ```
-
----
-
-## 🛡️ Seguridad y Privacidad
-
-Este repositorio está configurado con reglas estrictas de `.gitignore` para garantizar que:
-- Ninguna base de datos de correos (`*.db`), archivos de cumplimiento (`*.zip`), ni reportes de clientes (`*.csv`, `*.xlsx`, `*.json`) se guarden en el historial de Git.
-- Las sesiones activas pueden purgarse en cualquier momento ejecutando `Disconnect-M365`.
-- El código se mantiene completamente agnóstico y transferible entre diferentes organizaciones.

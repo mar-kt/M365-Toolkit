@@ -4,8 +4,6 @@
 .DESCRIPTION
   Collects all the mailbox and archive stats from Exchange Online users. By default it will also
   include the Shared Mailboxes. 
-  
-  [AUTO-GENERATED]: This script has been refactored to use the ExchangeAdminTools module.
 #>
 
 param(

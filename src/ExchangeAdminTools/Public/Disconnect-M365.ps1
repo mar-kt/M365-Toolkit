@@ -1,41 +1,41 @@
 function Disconnect-M365 {
     <#
     .SYNOPSIS
-        Cierra de forma limpia todas las sesiones activas de Exchange Online y Microsoft Graph.
+        Cleanly closes all active Exchange Online, Security & Compliance, and Microsoft Graph sessions.
     .DESCRIPTION
-        Previene la retencion de credenciales en memoria cache y la mezcla de datos entre distintos clientes.
+        Prevents credential token retention in memory cache and eliminates cross-tenant data leakage.
     #>
     [CmdletBinding()]
     param()
 
     process {
-        Write-Host "Desconectando sesiones activas..." -ForegroundColor Yellow
+        Write-Host "Disconnecting active administrative sessions..." -ForegroundColor Yellow
 
-        # 1. Desconectar Exchange Online e IPPSSession (Purview)
+        # 1. Disconnect Exchange Online and Security & Compliance (Purview IPPSSession)
         try {
             if (Get-Command Disconnect-ExchangeOnline -ErrorAction SilentlyContinue) {
                 Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
-                Write-Host "Exchange Online e IPPSSession desconectados." -ForegroundColor Green
+                Write-Host "Exchange Online and IPPSSession disconnected." -ForegroundColor Green
             }
             Get-PSSession | Where-Object { $_.ConfigurationName -like "*Exchange*" -or $_.Name -like "*Exchange*" -or $_.Name -like "*Compliance*" } | Remove-PSSession -ErrorAction SilentlyContinue
         }
         catch {
-            Write-Warning "No se pudo desconectar completamente Exchange Online/Purview: $_"
+            Write-Warning "Could not completely disconnect Exchange Online/Purview: $_"
         }
 
-        # 2. Desconectar Microsoft Graph
+        # 2. Disconnect Microsoft Graph
         try {
             if (Get-Command Disconnect-MgGraph -ErrorAction SilentlyContinue) {
                 Disconnect-MgGraph -ErrorAction SilentlyContinue
-                Write-Host "Microsoft Graph desconectado." -ForegroundColor Green
+                Write-Host "Microsoft Graph disconnected." -ForegroundColor Green
             }
         }
         catch {
-            Write-Warning "No se pudo desconectar Microsoft Graph: $_"
+            Write-Warning "Could not disconnect Microsoft Graph: $_"
         }
 
-        # Limpiar variable de cliente
+        # Reset global client profile variable
         $global:M365ToolkitClientName = $null
-        Write-Host "Sesiones y variables de entorno restablecidas exitosamente." -ForegroundColor Green
+        Write-Host "Sessions and environment state successfully reset." -ForegroundColor Green
     }
 }

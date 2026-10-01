@@ -1,21 +1,21 @@
 function Export-AdminReport {
     <#
     .SYNOPSIS
-        Estandariza el proceso de exportacion de reportes con aislamiento por cliente.
+        Standardizes report exports with automated client and date-based isolation.
     .DESCRIPTION
-        Recibe un conjunto de datos, genera la ruta de destino organizada por Cliente/Fecha
-        dentro de la carpeta 'output/', comprueba si ImportExcel esta disponible y exporta a XLSX o CSV.
+        Takes a dataset, resolves the target destination directory under 'output/<ClientName>/<Date>/',
+        checks if the ImportExcel module is available, and exports to either styled XLSX or UTF-8 CSV.
     .PARAMETER InputObject
-        Datos a exportar (generalmente un array de PSCustomObjects).
+        Data to export (typically an array of PSCustomObjects).
     .PARAMETER ReportName
-        Nombre base del reporte (ej: "MailboxSize"). Se le anadira timestamp.
+        Base report name (e.g., "MailboxSize"). An execution timestamp will be appended.
     .PARAMETER ClientName
-        Nombre o identificador del cliente para aislar los reportes en output/<ClientName>/<Fecha>/.
-        Si no se indica, toma el valor de $global:M365ToolkitClientName o "General".
+        Client identifier to isolate outputs in output/<ClientName>/<Date>/.
+        Defaults to $global:M365ToolkitClientName or "General".
     .PARAMETER OutputDirectory
-        Ruta personalizada explicita para el archivo de salida (anula el calculo automatico).
+        Explicit custom output directory (overrides automatic path resolution).
     .PARAMETER AutoOpen
-        Si se especifica, intenta abrir el archivo generado (en plataformas compatibles).
+        If specified, attempts to open the generated report file (on supported platforms).
     #>
     [CmdletBinding()]
     param(
@@ -36,23 +36,23 @@ function Export-AdminReport {
 
     process {
         if (-not $InputObject) {
-            Write-Warning "Export-AdminReport: No hay datos para exportar."
+            Write-Warning "Export-AdminReport: No data to export."
             return
         }
 
-        # 1. Resolucion de Nombres y Timestamp
+        # 1. Name and Timestamp Resolution
         $timestamp = Get-Date -Format "yyyyMMdd-HHmm"
         $dateFolder = Get-Date -Format "yyyy-MM-dd"
         $baseName = "$ReportName-$timestamp"
 
-        # 2. Determinacion de Carpeta de Destino
+        # 2. Target Directory Resolution
         $targetDir = $null
 
         if ($OutputDirectory) {
             $targetDir = $OutputDirectory
         }
         else {
-            # Intentar localizar la carpeta 'output' del Toolkit
+            # Locate toolkit output base directory
             $toolkitRoot = Resolve-Path (Join-Path $PSScriptRoot "../../..") -ErrorAction SilentlyContinue
             $outputBase = if ($toolkitRoot) { Join-Path $toolkitRoot.Path "output" } else { $null }
 
@@ -61,7 +61,7 @@ function Export-AdminReport {
                 $targetDir = Join-Path $outputBase (Join-Path $clientFolder $dateFolder)
             }
             else {
-                # Fallback clasico: Desktop o Directorio de usuario
+                # Fallback: User Desktop or Home folder
                 $desktopPath = [Environment]::GetFolderPath("Desktop")
                 if (-not $desktopPath -or -not (Test-Path $desktopPath)) {
                     $desktopPath = $HOME
@@ -70,46 +70,46 @@ function Export-AdminReport {
             }
         }
 
-        # Crear carpeta de destino si no existe
+        # Create target directory if it does not exist
         if (-not (Test-Path $targetDir)) {
             New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
         }
 
-        # 3. Exportacion en Excel (ImportExcel) o CSV UTF-8
+        # 3. Export to Excel (ImportExcel) or UTF-8 CSV
         $finalPath = $null
 
         if (Get-Module -ListAvailable -Name ImportExcel) {
             $xlsxPath = Join-Path $targetDir "$baseName.xlsx"
-            Write-Host "Exportando reporte a Excel ($xlsxPath)..." -ForegroundColor Cyan
+            Write-Host "Exporting report to Excel ($xlsxPath)..." -ForegroundColor Cyan
             
             try {
                 $InputObject | Export-Excel -Path $xlsxPath -AutoSize -FreezeTopRow -TableStyle Medium13 -ErrorAction Stop
-                Write-Host "[OK] Reporte Excel generado exitosamente: $xlsxPath" -ForegroundColor Green
+                Write-Host "[OK] Excel report successfully generated: $xlsxPath" -ForegroundColor Green
                 $finalPath = $xlsxPath
             }
             catch {
-                Write-Warning "Fallo la exportacion a Excel: $_. Usando respaldo en CSV..."
+                Write-Warning "Excel export failed: $_. Falling back to CSV..."
                 $csvPath = Join-Path $targetDir "$baseName.csv"
                 $InputObject | Export-Csv -Path $csvPath -NoTypeInformation -Encoding UTF8
-                Write-Host "[OK] Reporte CSV generado exitosamente: $csvPath" -ForegroundColor Green
+                Write-Host "[OK] CSV report successfully generated: $csvPath" -ForegroundColor Green
                 $finalPath = $csvPath
             }
         }
         else {
             $csvPath = Join-Path $targetDir "$baseName.csv"
-            Write-Host "Exportando reporte a CSV ($csvPath)..." -ForegroundColor Cyan
+            Write-Host "Exporting report to CSV ($csvPath)..." -ForegroundColor Cyan
             $InputObject | Export-Csv -Path $csvPath -NoTypeInformation -Encoding UTF8
-            Write-Host "[OK] Reporte CSV generado exitosamente: $csvPath" -ForegroundColor Green
+            Write-Host "[OK] CSV report successfully generated: $csvPath" -ForegroundColor Green
             $finalPath = $csvPath
         }
 
-        # 4. Apertura automatica opcional
+        # 4. Optional Auto-Open
         if ($AutoOpen -and $finalPath -and $IsWindows) {
             try {
                 Start-Process $finalPath
             }
             catch {
-                Write-Verbose "No se pudo auto-abrir el archivo: $_"
+                Write-Verbose "Could not auto-open report file: $_"
             }
         }
 

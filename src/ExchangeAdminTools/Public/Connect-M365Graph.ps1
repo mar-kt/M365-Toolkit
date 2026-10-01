@@ -1,12 +1,12 @@
 function Connect-M365Graph {
     <#
     .SYNOPSIS
-        Asegura una conexion activa con Microsoft Graph con los permisos minimos requeridos.
+        Ensures an active Microsoft Graph session with minimum required permissions.
     .DESCRIPTION
-        Comprueba si ya existe una sesion activa en el contexto de Microsoft Graph.
-        Si no existe, se conecta usando Connect-MgGraph solicitando los scopes delegados necesarios.
+        Checks if an active Microsoft Graph context already exists.
+        If not, connects using Connect-MgGraph requesting the necessary delegated scopes.
     .PARAMETER Scopes
-        Array con los permisos requeridos. Por defecto: User.Read.All, UserAuthenticationMethod.Read.All, Organization.Read.All.
+        Array of required permissions. Default: User.Read.All, UserAuthenticationMethod.Read.All, Organization.Read.All.
     #>
     [CmdletBinding()]
     param(
@@ -14,7 +14,7 @@ function Connect-M365Graph {
     )
 
     process {
-        Write-Verbose "Comprobando sesion activa en Microsoft Graph..."
+        Write-Verbose "Checking for active Microsoft Graph session..."
 
         $connected = $false
         try {
@@ -30,18 +30,18 @@ function Connect-M365Graph {
         }
 
         if ($connected) {
-            Write-Verbose "Sesion de Microsoft Graph activa encontrada para: $($context.Account)"
-            Write-Host "Sesion activa en Microsoft Graph: $($context.Account)" -ForegroundColor Green
+            Write-Verbose "Active Microsoft Graph session found for: $($context.Account)"
+            Write-Host "Active Microsoft Graph session: $($context.Account)" -ForegroundColor Green
         }
         else {
-            Write-Host "Conectando a Microsoft Graph..." -ForegroundColor Cyan
+            Write-Host "Connecting to Microsoft Graph..." -ForegroundColor Cyan
             try {
                 Connect-MgGraph -Scopes $Scopes -NoWelcome -ErrorAction Stop
                 $newContext = Get-MgContext -ErrorAction SilentlyContinue
-                Write-Host "Conectado exitosamente a Microsoft Graph como: $($newContext.Account)" -ForegroundColor Green
+                Write-Host "Connected successfully to Microsoft Graph as: $($newContext.Account)" -ForegroundColor Green
             }
             catch {
-                Write-Error "Fallo al conectar con Microsoft Graph: $_"
+                Write-Error "Failed to connect to Microsoft Graph: $_"
                 throw
             }
         }

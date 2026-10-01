@@ -1,10 +1,10 @@
 <#
 .SYNOPSIS
-    Punto de entrada directo a M365 Toolkit Console.
+    Direct entry point for M365 Toolkit Interactive Console.
 #>
 $consoleScript = Join-Path $PSScriptRoot "src\Scripts\Start-ExchangeConsole.ps1"
 if (Test-Path $consoleScript) {
     & $consoleScript @args
 } else {
-    Write-Error "No se encontro Start-ExchangeConsole.ps1 en $consoleScript"
+    Write-Error "Start-ExchangeConsole.ps1 not found at $consoleScript"
 }

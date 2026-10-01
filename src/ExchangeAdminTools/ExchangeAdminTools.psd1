@@ -3,13 +3,13 @@
     RootModule        = 'ExchangeAdminTools.psm1'
 
     # Version number of this module.
-    ModuleVersion     = '1.0.0'
+    ModuleVersion     = '1.1.0'
 
     # ID used to uniquely identify this module
     GUID              = '8e6dfd15-9c88-4e1b-b461-8742d45b5c92'
 
     # Author of this module
-    Author            = 'SysAdmin Toolkit'
+    Author            = 'Mar~'
 
     # Description of the functionality provided by this module
     Description       = 'M365 Toolkit - Multi-tenant tools for Exchange Online, Microsoft Graph and Compliance administration.'

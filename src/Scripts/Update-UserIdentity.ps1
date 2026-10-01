@@ -6,7 +6,7 @@
     This script automates the process of recycling a Microsoft 365 Business Standard account.
     It updates the Display Name, UPN, and resets the password.
     Crucially, it adds the OLD UPN as an SMTP Alias so the new user receives previous emails.
-    它 also clears stale personal data (Manager, Title, Phone).
+    also clears stale personal data (Manager, Title, Phone).
 
 .PARAMETER Identity
     The current UserPrincipalName (email) of the account to rename.

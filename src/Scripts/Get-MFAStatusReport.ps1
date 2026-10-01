@@ -1,39 +1,39 @@
 <#
 .SYNOPSIS
-    Audita el estado de registro de métodos MFA y protección moderna de los usuarios.
+    Audits user Multi-Factor Authentication (MFA) registration status and modern protection methods.
 .DESCRIPTION
-    Utiliza el modulo moderno 'Microsoft.Graph.Identity.SignIns'.
-    Audita los métodos de autenticación registrados realmente por cada usuario
-    (Microsoft Authenticator, FIDO2, Phone, Windows Hello, etc.), compatible con Conditional Access.
+    Powered by the modern 'Microsoft.Graph.Identity.SignIns' module.
+    Audits actual authentication methods registered by each user
+    (Microsoft Authenticator, FIDO2, Phone, Windows Hello, etc.), fully compatible with Conditional Access.
 #>
 
 # --- Auto-Load Module Logic ---
 . $PSScriptRoot/_Bootstrap.ps1
 # ------------------------------
 
-# --- Dependencia: Microsoft.Graph.Identity.SignIns ---
+# --- Dependency Check: Microsoft.Graph.Identity.SignIns ---
 if (-not (Get-Module -ListAvailable -Name Microsoft.Graph.Identity.SignIns)) {
-    Write-Warning "Este script requiere el modulo 'Microsoft.Graph.Identity.SignIns'."
-    $install = Read-Host "Desea instalarlo ahora para el usuario actual? (Y/N)"
-    if ($install -eq 'Y') {
+    Write-Warning "This script requires the 'Microsoft.Graph.Identity.SignIns' module."
+    $install = Read-Host "Do you want to install it now for CurrentUser? (Y/N)"
+    if ($install -eq 'Y' -or $install -eq 'y') {
         Install-Module Microsoft.Graph.Identity.SignIns -Scope CurrentUser -Force
     }
     else {
-        Write-Error "Falta el modulo Microsoft.Graph.Identity.SignIns. Abortando ejecucion."
+        Write-Error "Missing required module: Microsoft.Graph.Identity.SignIns. Aborting execution."
         exit
     }
 }
 
-# --- Conexion con Microsoft Graph ---
+# --- Connect to Microsoft Graph ---
 Connect-M365Graph -Scopes @('User.Read.All', 'UserAuthenticationMethod.Read.All')
 
-Write-Host "Consultando usuarios para auditoría de MFA..." -ForegroundColor Cyan
+Write-Host "Querying users for MFA status audit..." -ForegroundColor Cyan
 
 try {
     $users = Get-MgUser -All -Property Id,DisplayName,UserPrincipalName,AccountEnabled,AssignedLicenses -ErrorAction Stop
 }
 catch {
-    Write-Error "Error al consultar usuarios desde Microsoft Graph: $_"
+    Write-Error "Error querying users from Microsoft Graph: $_"
     exit
 }
 
@@ -41,11 +41,11 @@ $results = @()
 $total = $users.Count
 $i = 0
 
-Write-Host "Auditando métodos de autenticación en $total usuarios..." -ForegroundColor Yellow
+Write-Host "Auditing registered authentication methods across $total users..." -ForegroundColor Yellow
 
 foreach ($u in $users) {
     $i++
-    Write-Progress -Activity "Auditando Métodos MFA" -Status "$($u.DisplayName)" -PercentComplete (($i / $total) * 100)
+    Write-Progress -Activity "Auditing MFA Methods" -Status "$($u.DisplayName)" -PercentComplete (($i / $total) * 100)
 
     $methodsList = @()
     $hasMfaMethod = $false
@@ -79,7 +79,7 @@ foreach ($u in $users) {
                     $methodsList += "Email"
                 }
                 "#microsoft.graph.passwordAuthenticationMethod" {
-                    # Contraseña base estándar
+                    # Baseline primary password
                 }
                 Default {
                     if ($type) {
@@ -91,7 +91,7 @@ foreach ($u in $users) {
         }
     }
     catch {
-        Write-Verbose "No se pudieron obtener métodos para $($u.UserPrincipalName): $_"
+        Write-Verbose "Could not retrieve authentication methods for $($u.UserPrincipalName): $_"
     }
 
     $mfaStatus = if ($hasMfaMethod) { "MFA Configured" } else { "No MFA Methods" }
@@ -108,12 +108,12 @@ foreach ($u in $users) {
     }
 }
 
-# --- Exportacion ---
+# --- Export Report ---
 if ($results.Count -gt 0) {
     Export-AdminReport -InputObject $results -ReportName "MFAStatusReport" -AutoOpen
 }
 else {
-    Write-Warning "No se obtuvieron registros de usuarios."
+    Write-Warning "No user records retrieved."
 }
 
-Write-Host "Finalizado." -ForegroundColor Green
+Write-Host "Done." -ForegroundColor Green

@@ -5,9 +5,6 @@
   Retrieves Online Archive folders for a mailbox, converts FolderId (EWS Base64) to valid IndexId HEX for KQL,
   builds 'folderid:HEX OR ...' queries, partitions them if necessary, creates and executes Compliance Search(es)
   that return exclusively the archive content. Optional export.
-  
-  [ENHANCED]: Unique timestamped search names, Purview backend propagation delay, 
-  automatic action cleanup, query complexity limits, and retry logic.
 .NOTES
   Requirements: PowerShell 7+ (pwsh), ExchangeOnlineManagement module, Exchange and eDiscovery/Compliance permissions.
 #>
