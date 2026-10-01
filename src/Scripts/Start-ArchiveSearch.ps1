@@ -95,18 +95,17 @@ if (-not $BaseSearchName) {
 # Connect to Exchange Online
 Connect-Exchange
 
-# Connect to Purview / Security & Compliance
-if (-not (Test-HasCommand "Get-ComplianceSearch")) {
-  Write-Host "Connecting to Security & Compliance / Purview (Connect-IPPSSession)..." -ForegroundColor Cyan
-  try {
-    Connect-IPPSSession -ErrorAction Stop
-  }
-  catch {
-    throw "Failed to load Purview cmdlets (Get/New/Start-ComplianceSearch). Ensure your account has the 'eDiscovery Manager' role in Purview. Detail: $_"
-  }
+# Connect to Purview / Security & Compliance (Search-Only REST session)
+# Microsoft Purview (EXO v3.9.0+) explicitly requires -EnableSearchOnlySession to execute Start-ComplianceSearch
+Write-Host "Connecting to Security & Compliance / Purview (Search-Only Session)..." -ForegroundColor Cyan
+try {
+  Connect-IPPSSession -EnableSearchOnlySession -ShowBanner:$false -ErrorAction Stop
 }
-else {
-  Write-Verbose "Compliance cmdlets already available."
+catch {
+  Write-Verbose "Connect-IPPSSession returned: $_"
+  if (-not (Test-HasCommand "Get-ComplianceSearch")) {
+    throw "Failed to load Purview cmdlets. Ensure you have the 'eDiscovery Manager' role in Purview. Detail: $_"
+  }
 }
 
 # ---------- Mailbox and Archive Validation ----------

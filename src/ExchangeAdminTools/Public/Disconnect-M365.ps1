@@ -11,15 +11,16 @@ function Disconnect-M365 {
     process {
         Write-Host "Desconectando sesiones activas..." -ForegroundColor Yellow
 
-        # 1. Desconectar Exchange Online
+        # 1. Desconectar Exchange Online e IPPSSession (Purview)
         try {
             if (Get-Command Disconnect-ExchangeOnline -ErrorAction SilentlyContinue) {
                 Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
-                Write-Host "Exchange Online desconectado." -ForegroundColor Green
+                Write-Host "Exchange Online e IPPSSession desconectados." -ForegroundColor Green
             }
+            Get-PSSession | Where-Object { $_.ConfigurationName -like "*Exchange*" -or $_.Name -like "*Exchange*" -or $_.Name -like "*Compliance*" } | Remove-PSSession -ErrorAction SilentlyContinue
         }
         catch {
-            Write-Warning "No se pudo desconectar Exchange Online: $_"
+            Write-Warning "No se pudo desconectar completamente Exchange Online/Purview: $_"
         }
 
         # 2. Desconectar Microsoft Graph
