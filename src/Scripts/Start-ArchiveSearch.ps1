@@ -6,18 +6,21 @@
   builds 'folderid:HEX OR ...' queries, partitions them if necessary, creates and executes Compliance Search(es)
   that return exclusively the archive content. Optional export.
   
-  [AUTO-GENERATED]: Refactored to use ExchangeAdminTools module.
+  [ENHANCED]: Unique timestamped search names, Purview backend propagation delay, 
+  automatic action cleanup, query complexity limits, and retry logic.
 .NOTES
   Requirements: PowerShell 7+ (pwsh), ExchangeOnlineManagement module, Exchange and eDiscovery/Compliance permissions.
 #>
 
 param(
-  [Parameter(Mandatory = $true)]
-  [string]$UserUpn,                        # E.g. user@domain.com
+  [Parameter(Mandatory = $true, HelpMessage = "User Principal Name (e.g. user@domain.com)")]
+  [string]$UserUpn,
 
-  [string]$BaseSearchName = $null,         # If null, generated from $UserUpn
+  [string]$BaseSearchName = $null,         # If null, generated from $UserUpn + timestamp
 
-  [int]$MaxQueryLength = 9000,             # Safe limit for KQL (adjust if your tenant requires less)
+  [int]$MaxFoldersPerQuery = 60,           # Max folders per KQL query (prevents KQL complexity/OR limit errors)
+
+  [int]$MaxQueryLength = 4000,             # Safe limit for KQL length in Purview
 
   [bool]$ExcludeDumpster = $true,          # Exclude Recoverable Items from Archive
 
@@ -30,7 +33,7 @@ param(
 . $PSScriptRoot/_Bootstrap.ps1
 # -------------------------------------------------------
 
-# ---------- Utilities (Module handles Connect and Ensure-Module) ----------
+# ---------- Utilities ----------
 function Test-HasCommand { param([string]$Name) return $null -ne (Get-Command -Name $Name -ErrorAction SilentlyContinue) }
 
 # Converts EWS FolderId (Base64) to KQL IndexId HEX: 'folderid:HEX...'
@@ -79,30 +82,48 @@ function Build-KqlFromArchiveFolders {
   return ($clauses -join " OR ")
 }
 
-# ---------- Search Name ----------
+# ---------- Run Timestamp & Search Name Generation ----------
+$runTimestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+
 if (-not $BaseSearchName) {
-  $sanitized = $UserUpn -replace '[^a-zA-Z0-9_.-]', '_'
-  $BaseSearchName = "ArchiveOnly_$sanitized"
+  $sanitized = ($UserUpn -replace '[^a-zA-Z0-9]', '_').Trim('_')
+  # Unique timestamp prevents collision with prior searches or orphaned export actions
+  $BaseSearchName = "ArchiveOnly_${sanitized}_${runTimestamp}"
 }
 
 # ---------- Connections: EXO and Purview ----------
-# Use Shared Module Connect
+# Connect to Exchange Online
 Connect-Exchange
 
-# Purview / Security & Compliance
+# Connect to Purview / Security & Compliance
 if (-not (Test-HasCommand "Get-ComplianceSearch")) {
-  Write-Host "Connecting to Security & Compliance (Connect-IPPSSession)..."
-  try { Connect-IPPSSession -ErrorAction Stop } catch { throw "Failed to load Purview cmdlets (Get/New/Start-ComplianceSearch...). Detail: $_" }
+  Write-Host "Connecting to Security & Compliance / Purview (Connect-IPPSSession)..." -ForegroundColor Cyan
+  try {
+    Connect-IPPSSession -ErrorAction Stop
+  }
+  catch {
+    throw "Failed to load Purview cmdlets (Get/New/Start-ComplianceSearch). Ensure your account has the 'eDiscovery Manager' role in Purview. Detail: $_"
+  }
 }
-else { Write-Verbose "Compliance cmdlets already available." }
+else {
+  Write-Verbose "Compliance cmdlets already available."
+}
 
 # ---------- Mailbox and Archive Validation ----------
-try { $mailbox = Get-Mailbox -Identity $UserUpn -ErrorAction Stop } catch { throw "Could not retrieve mailbox $UserUpn. Error: $_" }
+try {
+  $mailbox = Get-Mailbox -Identity $UserUpn -ErrorAction Stop
+}
+catch {
+  throw "Could not retrieve mailbox $UserUpn. Error: $_"
+}
+
 if (-not $mailbox.ArchiveStatus -or $mailbox.ArchiveStatus -eq "None") {
   throw "User $UserUpn does not have Online Archive enabled (ArchiveStatus: $($mailbox.ArchiveStatus))."
 }
 
-# ---------- Archive Folders ----------
+Write-Host "Validating archive for: $($mailbox.DisplayName) ($UserUpn)..." -ForegroundColor Cyan
+
+# ---------- Archive Folders Extraction ----------
 try {
   $archiveFolders = Get-MailboxFolderStatistics -Identity $UserUpn -Archive -ErrorAction Stop
 }
@@ -117,35 +138,48 @@ if ($ExcludeDumpster) {
 }
 
 $folderIds = $archiveFolders | Where-Object { $_.FolderId } | Select-Object -ExpandProperty FolderId -Unique
-if (-not $folderIds -or $folderIds.Count -eq 0) { throw "No FolderIds found in Archive for $UserUpn (after filtering)." }
-
-Write-Host "Total folders in Archive: $($folderIds.Count)."
-
-# ---------- Portable Temp Directory ----------
-try {
-  $tmp = [System.IO.Path]::GetTempPath(); if (-not $tmp) { $tmp = "/tmp" }
-  $kqlOutDir = Join-Path $tmp ("ArchiveOnlyKql_" + (Get-Date -Format "yyyyMMdd_HHmmss"))
-  New-Item -ItemType Directory -Path $kqlOutDir -Force | Out-Null
-  Write-Host "KQLs will be saved to: $kqlOutDir"
+if (-not $folderIds -or $folderIds.Count -eq 0) {
+  throw "No FolderIds found in Archive for $UserUpn (after filtering)."
 }
-catch { throw "Could not create temp directory: $_" }
 
-# ---------- Partitioning by Length ----------
+Write-Host "Total folders in Archive: $($folderIds.Count)." -ForegroundColor Green
+
+# ---------- Output Directory for KQL Files ----------
+$toolkitRoot = Resolve-Path (Join-Path $PSScriptRoot "../..") -ErrorAction SilentlyContinue
+$outputBase = if ($toolkitRoot) { Join-Path $toolkitRoot.Path "output" } else { $null }
+
+if ($outputBase -and (Test-Path $outputBase)) {
+  $clientDir = if ($global:M365ToolkitClientName) { $global:M365ToolkitClientName } else { "General" }
+  $kqlOutDir = Join-Path $outputBase (Join-Path $clientDir "kql\$runTimestamp")
+}
+else {
+  $tmp = [System.IO.Path]::GetTempPath(); if (-not $tmp) { $tmp = "/tmp" }
+  $kqlOutDir = Join-Path $tmp ("ArchiveOnlyKql_" + $runTimestamp)
+}
+
+New-Item -ItemType Directory -Path $kqlOutDir -Force | Out-Null
+Write-Host "KQL queries will be saved to: $kqlOutDir" -ForegroundColor Cyan
+
+# ---------- Partitioning by Length & Folder Count ----------
+# Purview limits both KQL string length and number of Boolean OR operators
 $chunks = New-Object System.Collections.Generic.List[object]
 $current = New-Object System.Collections.Generic.List[string]
 
 foreach ($id in $folderIds) {
   $testArr = @($current + $id)
   try { $test = Build-KqlFromArchiveFolders -EwsFolderIds $testArr } catch { $test = "" }
-  if ($test.Length -gt $MaxQueryLength -and $current.Count -gt 0) {
+  
+  if (($test.Length -gt $MaxQueryLength -or $current.Count -ge $MaxFoldersPerQuery) -and $current.Count -gt 0) {
     $chunks.Add($current.ToArray())
     $current = New-Object System.Collections.Generic.List[string]
   }
   $current.Add($id)
 }
-if ($current.Count -gt 0) { $chunks.Add($current.ToArray()) }
+if ($current.Count -gt 0) {
+  $chunks.Add($current.ToArray())
+}
 
-Write-Host "Will generate $($chunks.Count) search(es)."
+Write-Host "Query partitioned into $($chunks.Count) safe search block(s)." -ForegroundColor Yellow
 
 # ---------- Create and Execute Compliance Searches ----------
 $results = @()
@@ -155,36 +189,82 @@ for ($idx = 0; $idx -lt $chunks.Count; $idx++) {
   $kql = Build-KqlFromArchiveFolders -EwsFolderIds $part
   $searchName = if ($chunks.Count -gt 1) { "$BaseSearchName`_part$($idx+1)" } else { $BaseSearchName }
 
-  # Save KQL for audit
+  # Save KQL for audit and manual inspection
   $kqlFile = Join-Path $kqlOutDir "$searchName.kql.txt"
-  try { $kql | Out-File -FilePath $kqlFile -Encoding UTF8 -Force } catch { Write-Warning "Could not write ${kqlFile}: $_" }
+  try {
+    $kql | Out-File -FilePath $kqlFile -Encoding UTF8 -Force
+    Write-Host "  -> KQL saved ($($part.Count) folders): $kqlFile" -ForegroundColor DarkGray
+  }
+  catch {
+    Write-Warning "Could not write ${kqlFile}: $_"
+  }
 
-  # clean previous search if exists
+  # Clean existing search and associated actions if a custom BaseSearchName was passed
   try {
     $existing = Get-ComplianceSearch -Identity $searchName -ErrorAction SilentlyContinue
     if ($existing) {
-      Write-Host "Removing previous search '$searchName'..."
+      Write-Host "Found existing search '$searchName'. Cleaning associated actions first..." -ForegroundColor Yellow
+      $actions = Get-ComplianceSearchAction | Where-Object { $_.SearchName -eq $searchName } -ErrorAction SilentlyContinue
+      foreach ($act in $actions) {
+        Write-Host "Removing associated action '$($act.Name)'..." -ForegroundColor DarkYellow
+        Remove-ComplianceSearchAction -Identity $act.Name -Confirm:$false -ErrorAction SilentlyContinue
+      }
+      Start-Sleep -Seconds 3
+      Write-Host "Removing previous search '$searchName'..." -ForegroundColor Yellow
       Remove-ComplianceSearch -Identity $searchName -Confirm:$false -ErrorAction SilentlyContinue
+      Start-Sleep -Seconds 5
     }
   }
-  catch { Write-Warning "Warning removing existing search: $_" }
-
-  # Create and Start
-  try {
-    Write-Host "Creating ComplianceSearch '$searchName'..."
-    New-ComplianceSearch -Name $searchName -ExchangeLocation $UserUpn -ContentMatchQuery $kql -ErrorAction Stop | Out-Null
-    Start-ComplianceSearch -Identity $searchName -ErrorAction Stop | Out-Null
+  catch {
+    Write-Warning "Warning cleaning existing search: $_"
   }
-  catch { throw "Error creating/starting ComplianceSearch '$searchName': $_" }
 
-  # Polling until completion with TIMEOUT
+  # 1. Create Compliance Search
+  try {
+    Write-Host "Creating ComplianceSearch '$searchName' in Purview..." -ForegroundColor Cyan
+    New-ComplianceSearch -Name $searchName -ExchangeLocation $UserUpn -ContentMatchQuery $kql -ErrorAction Stop | Out-Null
+    Write-Host "Search created. Waiting 4 seconds for Purview backend propagation..." -ForegroundColor Gray
+    Start-Sleep -Seconds 4
+  }
+  catch {
+    throw "Error creating ComplianceSearch '$searchName': $_"
+  }
+
+  # 2. Start Compliance Search (with Retry logic for transient backend synchronization)
+  $started = $false
+  $startAttempts = 0
+  $maxStartAttempts = 3
+
+  while (-not $started -and $startAttempts -lt $maxStartAttempts) {
+    $startAttempts++
+    try {
+      Write-Host "Starting ComplianceSearch '$searchName' (Attempt $startAttempts of $maxStartAttempts)..." -ForegroundColor Cyan
+      Start-ComplianceSearch -Identity $searchName -ErrorAction Stop | Out-Null
+      $started = $true
+      Write-Host "Search successfully started." -ForegroundColor Green
+    }
+    catch {
+      Write-Warning "Attempt $startAttempts to start search failed: $_"
+      if ($startAttempts -lt $maxStartAttempts) {
+        Write-Host "Waiting 5 seconds before retrying Start-ComplianceSearch..." -ForegroundColor Yellow
+        Start-Sleep -Seconds 5
+      }
+      else {
+        throw "Failed to start ComplianceSearch '$searchName' after $maxStartAttempts attempts. Detail: $_"
+      }
+    }
+  }
+
+  # 3. Polling until completion with Timeout
   $state = ""
   $startTime = Get-Date
   $timeoutSeconds = 3600 # 1 Hour Timeout
 
+  Write-Host "Waiting for search results..." -ForegroundColor Cyan
+
   do {
     Start-Sleep -Seconds 5
-    
+
     if ((Get-Date) -gt $startTime.AddSeconds($timeoutSeconds)) {
       throw "Timeout waiting for search '$searchName' to complete."
     }
@@ -192,35 +272,37 @@ for ($idx = 0; $idx -lt $chunks.Count; $idx++) {
     try {
       $info = Get-ComplianceSearch -Identity $searchName -ErrorAction Stop
       $state = $info.Status
-      Write-Host "$searchName -> State: $state  Items: $($info.Items)  Size: $($info.Size)"
+      Write-Host "$searchName -> State: $state | Items: $($info.Items) | Size: $($info.Size)"
     }
     catch {
-      Write-Host "$searchName -> State: (not available yet)"; $state = ""
+      Write-Host "$searchName -> State: (retrieving state...)"; $state = ""
     }
   } until ($state -in @("Completed", "PartiallySucceeded", "Failed"))
 
   $info = Get-ComplianceSearch -Identity $searchName
   $results += $info
 
+  # 4. Optional Export
   if ($KickOffExport) {
     try {
-      Write-Host "Starting export for $searchName..."
+      Write-Host "Starting direct export for $searchName..." -ForegroundColor Cyan
       $null = New-ComplianceSearchAction -SearchName $searchName -Export `
         -Format FxStream `
         -EnableDedupe:$true `
         -Scope Both `
         -IncludeUnsearchableItems:$ExportIncludeUnsearchable -ErrorAction Stop
-      Write-Host "Export started for $searchName (download in Purview portal)."
+      Write-Host "Export started for $searchName (available for download in Microsoft Purview Portal)." -ForegroundColor Green
     }
-    catch { Write-Warning "Could not start export for ${searchName}: $_" }
+    catch {
+      Write-Warning "Could not start export for ${searchName}: $_"
+    }
   }
-
-  Write-Host "KQL for $searchName saved to: $kqlFile"
 }
 
 # ---------- Summary ----------
-Write-Host "`n--- Summary ---"
-$results | Select-Object Name, Status, Items, Size, CreatedBy, CreatedTime | Format-Table -AutoSize
-Write-Host "`nKQLs saved to: $kqlOutDir"
-Write-Host "Tip: run with -KickOffExport to automatically launch export if needed."
-
+Write-Host "`n========================================" -ForegroundColor Green
+Write-Host "           SEARCH SUMMARY               " -ForegroundColor Green
+Write-Host "========================================" -ForegroundColor Green
+$results | Select-Object Name, Status, Items, Size, CreatedTime | Format-Table -AutoSize
+Write-Host "KQL files saved to: $kqlOutDir" -ForegroundColor Cyan
+Write-Host "Tip: Run with -KickOffExport:`$true to trigger export download packages automatically."
