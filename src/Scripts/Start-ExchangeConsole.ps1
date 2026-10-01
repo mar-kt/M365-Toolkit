@@ -9,19 +9,56 @@
 . $PSScriptRoot/_Bootstrap.ps1
 # ------------------------------
 
-# Initialize default client name if not set
-if (-not $global:M365ToolkitClientName) {
-    $global:M365ToolkitClientName = "General"
+function Get-DetectedTenant {
+    # 1. Check Exchange Online active session
+    try {
+        if (Get-Command Get-ConnectionInformation -ErrorAction SilentlyContinue) {
+            $info = Get-ConnectionInformation -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($info) {
+                if ($info.Organization) { return $info.Organization }
+                if ($info.Account) { return ($info.Account -split '@')[-1] }
+            }
+        }
+    }
+    catch {}
+
+    # 2. Check Microsoft Graph active session
+    try {
+        if (Get-Command Get-MgContext -ErrorAction SilentlyContinue) {
+            $mg = Get-MgContext -ErrorAction SilentlyContinue
+            if ($mg -and $mg.Account) {
+                return ($mg.Account -split '@')[-1]
+            }
+        }
+    }
+    catch {}
+
+    return $null
+}
+
+function Get-ActiveOutputFolder {
+    if ($global:M365ToolkitCustomOutputFolder) {
+        return $global:M365ToolkitCustomOutputFolder
+    }
+    $detected = Get-DetectedTenant
+    if ($detected) {
+        return $detected
+    }
+    return "General"
 }
 
 function Show-Menu {
     try { Clear-Host } catch {}
-    $activeClient = if ($global:M365ToolkitClientName) { $global:M365ToolkitClientName } else { "General" }
+    
+    $tenant = Get-DetectedTenant
+    $tenantDisplay = if ($tenant) { $tenant } else { "Disconnected" }
+    $activeFolder = Get-ActiveOutputFolder
+    $global:M365ToolkitClientName = $activeFolder
     
     Write-Host "========================================" -ForegroundColor Cyan
     Write-Host "         M365 ADMIN TOOLKIT             " -ForegroundColor Cyan
     Write-Host "========================================" -ForegroundColor Cyan
-    Write-Host " [Active Client: $activeClient]" -ForegroundColor Magenta
+    Write-Host " [Tenant: $tenantDisplay | Output Folder: $activeFolder]" -ForegroundColor Magenta
     Write-Host "----------------------------------------" -ForegroundColor DarkGray
     Write-Host " 1. Mailbox Size & Quotas Report (Excel)"
     Write-Host " 2. Search & Export Archives (Purview KQL)"
@@ -38,7 +75,7 @@ function Show-Menu {
     Write-Host "12. License Report (Microsoft Graph)"
     Write-Host "13. Modern MFA Status Report (Microsoft Graph)"
     Write-Host "----------------------------------------" -ForegroundColor DarkGray
-    Write-Host " C. Change Client Profile"
+    Write-Host " C. Change Output Folder"
     Write-Host " D. Disconnect Sessions (Clean Cache)"
     Write-Host " Q. Quit"
     Write-Host "========================================" -ForegroundColor Cyan
@@ -152,10 +189,15 @@ do {
             Pause
         }
         'C' {
-            $newClient = Read-Host "Enter new Client Profile identifier [Current: $global:M365ToolkitClientName]"
-            if ($newClient -and $newClient.Trim() -ne "") {
-                $global:M365ToolkitClientName = $newClient.Trim()
-                Write-Host "Active client set to: $global:M365ToolkitClientName" -ForegroundColor Green
+            $currentFolder = Get-ActiveOutputFolder
+            $newFolder = Read-Host "Enter custom Output Folder name (leave empty to reset to auto-detect) [Current: $currentFolder]"
+            if ($newFolder -and $newFolder.Trim() -ne "") {
+                $global:M365ToolkitCustomOutputFolder = $newFolder.Trim()
+                Write-Host "Output Folder set to: $global:M365ToolkitCustomOutputFolder" -ForegroundColor Green
+            }
+            else {
+                $global:M365ToolkitCustomOutputFolder = $null
+                Write-Host "Output Folder reset to auto-detect." -ForegroundColor Yellow
             }
             Start-Sleep -Seconds 1
         }

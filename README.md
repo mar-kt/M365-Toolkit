@@ -50,7 +50,7 @@ Because this toolkit originated from personal consulting engagements in Spanish 
 
 ### Storage & Quotas
 - **Detailed Mailbox Sizing Report** (`Get-MailboxSizeReport.ps1`): Analyzes primary mailbox size, dumpster/deleted items, Sent Items, quota free space, and Online Archive enablement and sizing.
-- **Client-Isolated Reporting** (`Export-AdminReport.ps1`): Automatically generates styled Excel workbooks (via `ImportExcel`) or UTF-8 CSVs organized neatly by Client and Date (`output/<Client>/<YYYY-MM-DD>/`).
+- **Tenant-Isolated Reporting** (`Export-AdminReport.ps1`): Automatically detects the connected tenant (or accepts a custom output folder) and organizes styled Excel workbooks (via `ImportExcel`) or UTF-8 CSVs neatly by tenant and date (`output/<Tenant>/<YYYY-MM-DD>/`).
 
 ### Identity & Lifecycle Management
 - **Account Recycling (Offboarding & Reassignment)** (`Update-UserIdentity.ps1`): Safely reassigns accounts to new employees by updating identity attributes, converting the previous employee's address into a secondary alias (`smtp:alias`) to retain historical mail, and purging stale personal directory metadata.

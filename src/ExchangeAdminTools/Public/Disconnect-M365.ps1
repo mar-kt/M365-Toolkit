@@ -34,8 +34,9 @@ function Disconnect-M365 {
             Write-Warning "Could not disconnect Microsoft Graph: $_"
         }
 
-        # Reset global client profile variable
+        # Reset global client/output folder variables
         $global:M365ToolkitClientName = $null
+        $global:M365ToolkitCustomOutputFolder = $null
         Write-Host "Sessions and environment state successfully reset." -ForegroundColor Green
     }
 }
