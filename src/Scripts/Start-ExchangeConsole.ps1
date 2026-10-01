@@ -10,25 +10,53 @@
 # ------------------------------
 
 function Get-DetectedTenant {
-    # 1. Check Exchange Online active session
+    # 1. Check Exchange Online active session via Get-ConnectionInformation
     try {
         if (Get-Command Get-ConnectionInformation -ErrorAction SilentlyContinue) {
-            $info = Get-ConnectionInformation -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($info) {
-                if ($info.Organization) { return $info.Organization }
-                if ($info.Account) { return ($info.Account -split '@')[-1] }
+            $connections = Get-ConnectionInformation -ErrorAction SilentlyContinue
+            if ($connections) {
+                # Prefer active connected session
+                $active = $connections | Where-Object { -not $_.State -or $_.State -eq 'Connected' } | Select-Object -First 1
+                if (-not $active) { $active = $connections | Select-Object -First 1 }
+
+                if ($active) {
+                    if ($active.Organization -and $active.Organization.Trim() -ne "") {
+                        return $active.Organization.Trim()
+                    }
+                    if ($active.UserPrincipalName -and $active.UserPrincipalName.Contains("@")) {
+                        return ($active.UserPrincipalName -split '@')[-1].Trim()
+                    }
+                }
             }
         }
     }
     catch {}
 
-    # 2. Check Microsoft Graph active session
+    # 2. Check active Exchange cmdlets if already imported in session
+    try {
+        if (Get-Command Get-AcceptedDomain -ErrorAction SilentlyContinue) {
+            $domain = (Get-AcceptedDomain -ErrorAction SilentlyContinue | Where-Object { $_.Default -or $_.IsDefault } | Select-Object -First 1).DomainName
+            if ($domain) { return $domain }
+        }
+    }
+    catch {}
+
+    # 3. Check Microsoft Graph active session
     try {
         if (Get-Command Get-MgContext -ErrorAction SilentlyContinue) {
             $mg = Get-MgContext -ErrorAction SilentlyContinue
-            if ($mg -and $mg.Account) {
-                return ($mg.Account -split '@')[-1]
+            if ($mg -and $mg.Account -and $mg.Account.Contains("@")) {
+                return ($mg.Account -split '@')[-1].Trim()
             }
+        }
+    }
+    catch {}
+
+    # 4. Fallback check for legacy Remote PowerShell sessions (Get-PSSession)
+    try {
+        $sess = Get-PSSession | Where-Object { $_.State -eq 'Opened' -and ($_.ConfigurationName -match 'Exchange' -or $_.Name -like '*Exchange*') } | Select-Object -First 1
+        if ($sess -and $sess.ConnectionUri) {
+            return $sess.ConnectionUri.Host
         }
     }
     catch {}
