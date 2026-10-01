@@ -1,76 +1,119 @@
 <#
 .SYNOPSIS
-    Audits Legacy Per-User MFA status (Enabled/Enforced/Disabled).
+    Audita el estado de registro de métodos MFA y protección moderna de los usuarios.
 .DESCRIPTION
-    Requires the 'MSOnline' module.
-    Checks the 'StrongAuthenticationRequirements' property on MsolUser objects.
-    Note: This does NOT detect Conditional Access Policies (Modern MFA).
+    Utiliza el modulo moderno 'Microsoft.Graph.Identity.SignIns'.
+    Audita los métodos de autenticación registrados realmente por cada usuario
+    (Microsoft Authenticator, FIDO2, Phone, Windows Hello, etc.), compatible con Conditional Access.
 #>
 
 # --- Auto-Load Module Logic ---
 . $PSScriptRoot/_Bootstrap.ps1
 # ------------------------------
 
-# --- Dependency Check ---
-if (-not (Get-Module -ListAvailable -Name MSOnline)) {
-    Write-Warning "This script requires the 'MSOnline' module."
-    $install = Read-Host "Do you want to install it now? (Y/N)"
+# --- Dependencia: Microsoft.Graph.Identity.SignIns ---
+if (-not (Get-Module -ListAvailable -Name Microsoft.Graph.Identity.SignIns)) {
+    Write-Warning "Este script requiere el modulo 'Microsoft.Graph.Identity.SignIns'."
+    $install = Read-Host "Desea instalarlo ahora para el usuario actual? (Y/N)"
     if ($install -eq 'Y') {
-        Install-Module MSOnline -Scope CurrentUser -Force
+        Install-Module Microsoft.Graph.Identity.SignIns -Scope CurrentUser -Force
     }
     else {
-        Write-Error "MSOnline module is missing. Exiting."
+        Write-Error "Falta el modulo Microsoft.Graph.Identity.SignIns. Abortando ejecucion."
         exit
     }
 }
 
-# --- Connection ---
+# --- Conexion con Microsoft Graph ---
+Connect-M365Graph -Scopes @('User.Read.All', 'UserAuthenticationMethod.Read.All')
+
+Write-Host "Consultando usuarios para auditoría de MFA..." -ForegroundColor Cyan
+
 try {
-    Write-Host "Connecting to Azure AD (MSOnline)..." -ForegroundColor Cyan
-    Connect-MsolService -ErrorAction Stop
+    $users = Get-MgUser -All -Property Id,DisplayName,UserPrincipalName,AccountEnabled,AssignedLicenses -ErrorAction Stop
 }
 catch {
-    Write-Error "Failed to connect to MSOnline: $_"
+    Write-Error "Error al consultar usuarios desde Microsoft Graph: $_"
     exit
 }
 
-Write-Host "Auditing MFA Status..." -ForegroundColor Cyan
-
-$users = Get-MsolUser -All
 $results = @()
-
 $total = $users.Count
 $i = 0
 
+Write-Host "Auditando métodos de autenticación en $total usuarios..." -ForegroundColor Yellow
+
 foreach ($u in $users) {
     $i++
-    Write-Progress -Activity "Auditing MFA" -Status "$($u.DisplayName)" -PercentComplete (($i / $total) * 100)
-    
-    $mfaStatus = "Disabled"
-    if ($u.StrongAuthenticationRequirements) {
-        $state = $u.StrongAuthenticationRequirements.State
-        if ($state) { $mfaStatus = $state }
+    Write-Progress -Activity "Auditando Métodos MFA" -Status "$($u.DisplayName)" -PercentComplete (($i / $total) * 100)
+
+    $methodsList = @()
+    $hasMfaMethod = $false
+
+    try {
+        $authMethods = Get-MgUserAuthenticationMethod -UserId $u.Id -ErrorAction Stop
+        foreach ($m in $authMethods) {
+            $type = $m.AdditionalProperties['@odata.type']
+            switch ($type) {
+                "#microsoft.graph.microsoftAuthenticatorAuthenticationMethod" {
+                    $methodsList += "Microsoft Authenticator"
+                    $hasMfaMethod = $true
+                }
+                "#microsoft.graph.phoneAuthenticationMethod" {
+                    $methodsList += "Phone/SMS"
+                    $hasMfaMethod = $true
+                }
+                "#microsoft.graph.fido2AuthenticationMethod" {
+                    $methodsList += "FIDO2/SecurityKey"
+                    $hasMfaMethod = $true
+                }
+                "#microsoft.graph.windowsHelloForBusinessAuthenticationMethod" {
+                    $methodsList += "Windows Hello"
+                    $hasMfaMethod = $true
+                }
+                "#microsoft.graph.softwareOathAuthenticationMethod" {
+                    $methodsList += "Software Token (TOTP)"
+                    $hasMfaMethod = $true
+                }
+                "#microsoft.graph.emailAuthenticationMethod" {
+                    $methodsList += "Email"
+                }
+                "#microsoft.graph.passwordAuthenticationMethod" {
+                    # Contraseña base estándar
+                }
+                Default {
+                    if ($type) {
+                        $cleanType = $type -replace '^#microsoft\.graph\.', '' -replace 'AuthenticationMethod$', ''
+                        $methodsList += $cleanType
+                    }
+                }
+            }
+        }
     }
-    
-    # Also check if they have registered methods (Phone/App)
-    # The 'StrongAuthenticationMethods' property contains this.
-    $hasMethods = if ($u.StrongAuthenticationMethods.Count -gt 0) { $true } else { $false }
-    
+    catch {
+        Write-Verbose "No se pudieron obtener métodos para $($u.UserPrincipalName): $_"
+    }
+
+    $mfaStatus = if ($hasMfaMethod) { "MFA Configured" } else { "No MFA Methods" }
+
     $results += [PSCustomObject]@{
-        "User"       = $u.DisplayName
-        "UPN"        = $u.UserPrincipalName
-        "MFA Status" = $mfaStatus
-        "HasMethods" = $hasMethods
-        "IsLicensed" = $u.IsLicensed
+        "User"              = $u.DisplayName
+        "UPN"               = $u.UserPrincipalName
+        "AccountEnabled"    = $u.AccountEnabled
+        "IsLicensed"        = ($u.AssignedLicenses.Count -gt 0)
+        "MFA Status"        = $mfaStatus
+        "HasMFA"            = $hasMfaMethod
+        "MethodsCount"      = $methodsList.Count
+        "RegisteredMethods" = if ($methodsList) { ($methodsList -join ", ") } else { "None" }
     }
 }
 
-# --- Export ---
+# --- Exportacion ---
 if ($results.Count -gt 0) {
-    Write-Host "Found $($results.Count) users." -ForegroundColor Green
     Export-AdminReport -InputObject $results -ReportName "MFAStatusReport" -AutoOpen
 }
 else {
-    Write-Warning "No users found?"
+    Write-Warning "No se obtuvieron registros de usuarios."
 }
-Write-Host "Done."
+
+Write-Host "Finalizado." -ForegroundColor Green

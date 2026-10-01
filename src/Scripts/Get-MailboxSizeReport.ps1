@@ -10,10 +10,10 @@
 
 param(
   [Parameter(
-    Mandatory = $true,
-    HelpMessage = "Enter the Exchange Online or Global admin username"
+    Mandatory = $false,
+    HelpMessage = "Enter the Exchange Online or Global admin username (Optional if already connected)"
   )]
-  [string]$adminUPN,
+  [string]$adminUPN = "",
 
   [Parameter(
     Mandatory = $false,

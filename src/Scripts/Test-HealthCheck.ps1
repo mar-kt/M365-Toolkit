@@ -1,57 +1,74 @@
 # Test-HealthCheck.ps1
 $ErrorActionPreference = "Stop"
 
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "     M365 TOOLKIT - HEALTH CHECK        " -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
+
+# 1. Module Import
 Write-Host "1. Testing Module Import..."
 $modulePath = Join-Path $PSScriptRoot "../ExchangeAdminTools/ExchangeAdminTools.psd1"
 try {
     if (Test-Path $modulePath) {
         Import-Module $modulePath -Force
-        Write-Host "SUCCESS: Module imported from $modulePath" -ForegroundColor Green
+        Write-Host " [OK] Module successfully imported from $modulePath" -ForegroundColor Green
     }
     else {
         throw "Module file not found at $modulePath"
     }
 }
 catch {
-    Write-Error "FAIL: Could not import module. $_"
+    Write-Error " [FAIL] Could not import module: $_"
     exit 1
 }
 
-Write-Host "2. Testing Public Function Export (Connect-Exchange)..."
-if (Get-Command "Connect-Exchange" -ErrorAction SilentlyContinue) {
-    Write-Host "SUCCESS: Connect-Exchange is available." -ForegroundColor Green
-}
-else {
-    Write-Error "FAIL: Connect-Exchange not found."
-    exit 1
-}
-
-Write-Host "3. Testing Private Function Logic (ConvertTo-Gb)..."
-# Check relative to PSScriptRoot
-$privateFuncPath = Join-Path $PSScriptRoot "../ExchangeAdminTools/Public/ConvertTo-Gb.ps1"
-if (Test-Path $privateFuncPath) {
-    Write-Host "SUCCESS: Public function file exists at $privateFuncPath" -ForegroundColor Green
-}
-else {
-    Write-Warning "WARNING: Public function file checks failed pathing."
-}
-
-Write-Host "4. Testing Script Auto-Loader Syntax..."
-$scripts = @(
-    "Get-MailboxSizeReport.ps1",
-    "Start-ArchiveSearch.ps1",
-    "Get-SimpleMailboxStats.ps1"
+# 2. Testing Public Exported Functions
+Write-Host "`n2. Testing Public Functions Export..."
+$expectedFunctions = @(
+    'Connect-Exchange',
+    'Connect-M365Graph',
+    'Disconnect-M365',
+    'ConvertTo-Gb',
+    'Export-AdminReport'
 )
-foreach ($s in $scripts) {
-    $fullPath = Join-Path $PSScriptRoot $s
+
+$missingFunctions = @()
+foreach ($fn in $expectedFunctions) {
+    if (Get-Command $fn -ErrorAction SilentlyContinue) {
+        Write-Host " [OK] Function '$fn' is available." -ForegroundColor Green
+    }
+    else {
+        Write-Host " [FAIL] Function '$fn' is missing!" -ForegroundColor Red
+        $missingFunctions += $fn
+    }
+}
+
+if ($missingFunctions.Count -gt 0) {
+    Write-Error "Module verification failed: Missing $($missingFunctions.Count) function(s)."
+    exit 1
+}
+
+# 3. Testing Scripts Syntax
+Write-Host "`n3. Testing Script Syntax across all tools..."
+$scriptFiles = Get-ChildItem -Path $PSScriptRoot -Filter "*.ps1" | Where-Object { $_.Name -ne "Test-HealthCheck.ps1" }
+
+$syntaxErrors = 0
+foreach ($s in $scriptFiles) {
     try {
-        # Just check if we can parse it (Get-Command on a file checks syntax)
-        $null = Get-Command $fullPath
-        Write-Host "SUCCESS: Syntax OK for $s" -ForegroundColor Green
+        $null = Get-Command $s.FullName -ErrorAction Stop
+        Write-Host " [OK] Syntax OK: $($s.Name)" -ForegroundColor Green
     }
     catch {
-        Write-Error "FAIL: Syntax Error in $s : $_"
+        Write-Host " [FAIL] Syntax error in $($s.Name): $_" -ForegroundColor Red
+        $syntaxErrors++
     }
 }
 
-Write-Host "Verification Complete."
+if ($syntaxErrors -gt 0) {
+    Write-Error "Found $syntaxErrors script syntax errors."
+    exit 1
+}
+
+Write-Host "`n========================================" -ForegroundColor Green
+Write-Host " [PASSED] ALL HEALTH CHECKS COMPLETED!  " -ForegroundColor Green
+Write-Host "========================================" -ForegroundColor Green

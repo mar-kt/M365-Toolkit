@@ -1,177 +1,174 @@
 <#
 .SYNOPSIS
-    Interactive Command Center for Exchange Admin Tools.
+    Interactive Command Center for M365 Toolkit.
 .DESCRIPTION
-    Provides a simple text-based menu to access reports, search, and user management tools.
+    Provides a simple text-based menu to access reports, search, identity and backup tools.
 #>
 
 # --- Auto-Load Module Logic ---
 . $PSScriptRoot/_Bootstrap.ps1
 # ------------------------------
 
-# Ensure Connection Once
-Write-Host "Initializing Exchange Console..." -ForegroundColor Cyan
-Connect-Exchange
+# Initialize default client name if not set
+if (-not $global:M365ToolkitClientName) {
+    $global:M365ToolkitClientName = "General"
+}
 
 function Show-Menu {
     Clear-Host
-    Write-Host "============================" -ForegroundColor Cyan
-    Write-Host "   EXCHANGE ADMIN CONSOLE   " -ForegroundColor Cyan
-    Write-Host "============================" -ForegroundColor Cyan
-    Write-Host "1. Get Mailbox Size Report (Excel)"
-    Write-Host "2. Search & Export Archives"
-    Write-Host "3. Rename User / Offboard Identity"
-    Write-Host "4. Audit Forwarding Rules (Security)"
-    Write-Host "5. Find Stale/Unused Mailboxes (Cost)"
-    Write-Host "6. Audit Mailbox Permissions (Privacy)"
-    Write-Host "7. Track Email Delivery (Support)"
-    Write-Host "----------------------------"
-    Write-Host "8. Backup Dashboard (Report)"
-    Write-Host "9. Backup Indexer (Maintenance)"
-    Write-Host "10. Search Backups (Tool)"
-    Write-Host "11. Run Health Check (Maintenance)"
-    Write-Host "12. License Report (Cost)"
-    Write-Host "13. MFA Status Report (Security)"
-    Write-Host "Q. Quit"
-    Write-Host "============================" -ForegroundColor Cyan
+    $activeClient = if ($global:M365ToolkitClientName) { $global:M365ToolkitClientName } else { "General" }
+    
+    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host "         M365 ADMIN TOOLKIT             " -ForegroundColor Cyan
+    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host " [Cliente Activo: $activeClient]" -ForegroundColor Magenta
+    Write-Host "----------------------------------------" -ForegroundColor DarkGray
+    Write-Host " 1. Reporte de Buzones y Cuotas (Excel)"
+    Write-Host " 2. Buscar y Exportar Archivos (Purview KQL)"
+    Write-Host " 3. Reciclar Cuenta / Traspaso de Identidad"
+    Write-Host " 4. Auditar Reenvíos de Correo (Seguridad)"
+    Write-Host " 5. Detectar Buzones Inactivos (>90 días)"
+    Write-Host " 6. Auditar Permisos Delegados (FullAccess/SendAs)"
+    Write-Host " 7. Rastrear Entrega de Correo (MessageTrace)"
+    Write-Host "----------------------------------------" -ForegroundColor DarkGray
+    Write-Host " 8. Dashboard de Backups Locales (Salud)"
+    Write-Host " 9. Indexador de Backups SQLite"
+    Write-Host "10. Buscar en Backups Locales (Desconectado)"
+    Write-Host "11. Verificación de Salud (Health Check)"
+    Write-Host "12. Reporte de Licencias M365 (Graph)"
+    Write-Host "13. Reporte de Estado MFA Moderno (Graph)"
+    Write-Host "----------------------------------------" -ForegroundColor DarkGray
+    Write-Host " C. Cambiar Cliente / Perfil"
+    Write-Host " D. Desconectar Sesiones (Limpiar credenciales)"
+    Write-Host " Q. Salir"
+    Write-Host "========================================" -ForegroundColor Cyan
 }
 
 do {
     Show-Menu
-    $choice = Read-Host "Select an option"
+    $choice = Read-Host "Seleccione una opción"
 
     switch ($choice) {
         '1' {
-            Write-Host "Launching Mailbox Report..." -ForegroundColor Yellow
+            Write-Host "`nLanzando Reporte de Buzones..." -ForegroundColor Yellow
             $scriptPath = Join-Path $PSScriptRoot "Get-MailboxSizeReport.ps1"
             
-            # Interactive prompt for Admin UPN if needed by the script, 
-            # but usually the report script asks for it via parameter or connects automatically.
-            # Our modified report script uses Connect-Exchange, so it should be fine.
-            # But the param block requires 'adminUPN'. We should ask for it or let the script fail?
-            # Actually, Get-MailboxSizeReport.ps1 has [Parameter(Mandatory=$true)] $adminUPN.
-            # We can prompt here to be nice.
-            
-            $u = Read-Host "Enter Admin UPN (or press Enter if already connected)"
-            $incArchive = Read-Host "Include Archive Mailboxes? (Y/N) [Default: N]"
-            
+            $incArchive = Read-Host "¿Incluir buzones de archivo histórico? (Y/N) [Default: N]"
             $params = @{}
-            if ($u) { $params['adminUPN'] = $u }
-            if ($incArchive -eq 'Y') { $params['archive'] = $true }
+            if ($incArchive -eq 'Y' -or $incArchive -eq 'y') { $params['archive'] = $true }
 
             & $scriptPath @params
-            # Executed via splatting above
-            
             Pause
         }
         '2' {
-            Write-Host "Launching Archive Search..." -ForegroundColor Yellow
+            Write-Host "`nLanzando Búsqueda y Exportación de Archivos..." -ForegroundColor Yellow
             $scriptPath = Join-Path $PSScriptRoot "Start-ArchiveSearch.ps1"
-            
-            # Start-ArchiveSearch also has mandatory params.
-            # Let's just run it, powershell will prompt for mandatory params automatically!
             & $scriptPath
-            
             Pause
         }
         '3' {
-            Write-Host "Launching User Update Tool..." -ForegroundColor Yellow
+            Write-Host "`nLanzando Herramienta de Actualización de Identidad..." -ForegroundColor Yellow
             $scriptPath = Join-Path $PSScriptRoot "Update-UserIdentity.ps1"
-            
-            # Update-UserIdentity has Mandatory $Identity
-            # PowerShell will prompt.
             & $scriptPath
-            
             Pause
         }
         '4' {
-            Write-Host "Launching Forwarding Audit..." -ForegroundColor Yellow
+            Write-Host "`nIniciando Auditoría de Reenvíos..." -ForegroundColor Yellow
             $scriptPath = Join-Path $PSScriptRoot "Get-ForwardingReport.ps1"
             & $scriptPath
             Pause
         }
         '5' {
-            Write-Host "Launching Stale Mailbox Scan..." -ForegroundColor Yellow
+            Write-Host "`nIniciando Búsqueda de Buzones Inactivos..." -ForegroundColor Yellow
             $scriptPath = Join-Path $PSScriptRoot "Get-StaleMailboxes.ps1"
             
-            $days = Read-Host "Days Inactive Threshold [Default: 90]"
+            $days = Read-Host "Umbral de días de inactividad [Default: 90]"
             if (-not $days) { $days = 90 }
             & $scriptPath -Days $days
-            
             Pause
         }
         '6' {
-            Write-Host "Launching Permission Audit..." -ForegroundColor Yellow
+            Write-Host "`nIniciando Auditoría de Permisos..." -ForegroundColor Yellow
             $scriptPath = Join-Path $PSScriptRoot "Get-MailboxPermissionReport.ps1"
             & $scriptPath
             Pause
         }
         '7' {
-            Write-Host "Launching Email Tracker..." -ForegroundColor Yellow
+            Write-Host "`nIniciando Rastreo de Correo..." -ForegroundColor Yellow
             $scriptPath = Join-Path $PSScriptRoot "Search-DeliveryStatus.ps1"
             
-            $s = Read-Host "Sender Address"
-            $r = Read-Host "Recipient Address"
+            $s = Read-Host "Dirección del Remitente (Sender)"
+            $r = Read-Host "Dirección del Destinatario (Recipient)"
             if ($s -and $r) {
                 & $scriptPath -Sender $s -Recipient $r
             }
             else {
-                Write-Warning "Both Sender and Recipient are required."
+                Write-Warning "Tanto el remitente como el destinatario son requeridos."
             }
-            
             Pause
         }
         '8' {
-            Write-Host "Launching Backup Dashboard..." -ForegroundColor Yellow
+            Write-Host "`nCargando Dashboard de Backups..." -ForegroundColor Yellow
             $scriptPath = Join-Path $PSScriptRoot "Get-BackupReport.ps1"
             & $scriptPath
             Pause
         }
         '9' {
-            Write-Host "Launching Backup Indexer..." -ForegroundColor Yellow
+            Write-Host "`nIniciando Indexador de Respaldos..." -ForegroundColor Yellow
             $scriptPath = Join-Path $PSScriptRoot "Index-Backups.ps1"
             
-            $root = Read-Host "Path to Backup Root (e.g. /mnt/Backups)"
+            $root = Read-Host "Ruta al directorio de Backups (e.g. C:\Backups o /mnt/Backups)"
             if ($root) { & $scriptPath -BackupRoot $root }
             Pause
         }
         '10' {
-            Write-Host "Launching Backup Search..." -ForegroundColor Yellow
+            Write-Host "`nIniciando Búsqueda en Backups Locales..." -ForegroundColor Yellow
             $scriptPath = Join-Path $PSScriptRoot "Search-Backups.ps1"
             
-            $root = Read-Host "Path to Backup Root"
+            $root = Read-Host "Ruta al directorio de Backups"
             if ($root) {
-                $subj = Read-Host "Subject Keyword (Optional)"
-                $snd = Read-Host "Sender (Optional)"
-                
+                $subj = Read-Host "Palabra clave en Asunto (Opcional)"
+                $snd = Read-Host "Remitente (Opcional)"
                 & $scriptPath -BackupRoot $root -Subject $subj -From $snd
             }
             Pause
         }
         '11' {
-            Write-Host "Launching Health Check..." -ForegroundColor Yellow
+            Write-Host "`nEjecutando Verificación de Salud..." -ForegroundColor Yellow
             $scriptPath = Join-Path $PSScriptRoot "Test-HealthCheck.ps1"
             & $scriptPath
             Pause
         }
         '12' {
-            Write-Host "Launching License Report..." -ForegroundColor Yellow
+            Write-Host "`nGenerando Reporte de Licencias (Microsoft Graph)..." -ForegroundColor Yellow
             $scriptPath = Join-Path $PSScriptRoot "Get-LicenseReport.ps1"
             & $scriptPath
             Pause
         }
         '13' {
-            Write-Host "Launching MFA Report..." -ForegroundColor Yellow
+            Write-Host "`nGenerando Reporte de Estado MFA (Microsoft Graph)..." -ForegroundColor Yellow
             $scriptPath = Join-Path $PSScriptRoot "Get-MFAStatusReport.ps1"
             & $scriptPath
             Pause
         }
-        'Q' {
-            Write-Host "Goodbye!" -ForegroundColor Green
+        'C' -or 'c' {
+            $newClient = Read-Host "Ingrese el nuevo nombre o identificador del Cliente [Actual: $global:M365ToolkitClientName]"
+            if ($newClient -and $newClient.Trim() -ne "") {
+                $global:M365ToolkitClientName = $newClient.Trim()
+                Write-Host "Cliente activo configurado a: $global:M365ToolkitClientName" -ForegroundColor Green
+            }
+            Start-Sleep -Seconds 1
+        }
+        'D' -or 'd' {
+            Disconnect-M365
+            Pause
+        }
+        'Q' -or 'q' {
+            Write-Host "`n¡Hasta pronto!" -ForegroundColor Green
             return
         }
         Default {
-            Write-Warning "Invalid selection."
+            Write-Warning "Opción no válida."
             Start-Sleep -Seconds 1
         }
     }

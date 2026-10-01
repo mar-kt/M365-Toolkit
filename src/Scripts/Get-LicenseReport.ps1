@@ -1,68 +1,96 @@
 <#
 .SYNOPSIS
-    Generates a report of Microsoft 365 Licenses assigned to users.
+    Genera un informe de licencias de Microsoft 365 asignadas a los usuarios.
 .DESCRIPTION
-    Requires the 'MSOnline' module.
-    Lists every user, whether they are licensed, and which specific license SKUs (e.g. ENTERPRISEPACK) are assigned.
+    Utiliza el modulo moderno 'Microsoft.Graph.Users'.
+    Mapea los SkuIds con los nombres de producto legibles de la organizacion (ej: ENTERPRISEPACK, O365_BUSINESS_PREMIUM).
 #>
 
 # --- Auto-Load Module Logic ---
 . $PSScriptRoot/_Bootstrap.ps1
 # ------------------------------
 
-# --- Dependency Check ---
-if (-not (Get-Module -ListAvailable -Name MSOnline)) {
-    Write-Warning "This script requires the 'MSOnline' module."
-    $install = Read-Host "Do you want to install it now? (Y/N)"
+# --- Dependencia: Microsoft.Graph.Users ---
+if (-not (Get-Module -ListAvailable -Name Microsoft.Graph.Users)) {
+    Write-Warning "Este script requiere el modulo 'Microsoft.Graph.Users'."
+    $install = Read-Host "Desea instalarlo ahora para el usuario actual? (Y/N)"
     if ($install -eq 'Y') {
-        Install-Module MSOnline -Scope CurrentUser -Force
+        Install-Module Microsoft.Graph.Users -Scope CurrentUser -Force
     }
     else {
-        Write-Error "MSOnline module is missing. Exiting."
+        Write-Error "Falta el modulo Microsoft.Graph.Users. Abortando ejecucion."
         exit
     }
 }
 
-# --- Connection ---
+# --- Conexion con Microsoft Graph ---
+Connect-M365Graph -Scopes @('User.Read.All', 'Organization.Read.All')
+
+Write-Host "Consultando catálogo de licencias del tenant..." -ForegroundColor Cyan
+
+# 1. Obtener SKUs suscritos para mapear SkuId a nombre legible
+$skuDict = @{}
 try {
-    # MSOnline uses Connect-MsolService
-    Write-Host "Connecting to Azure AD (MSOnline)..." -ForegroundColor Cyan
-    Connect-MsolService -ErrorAction Stop
+    $subscribedSkus = Get-MgSubscribedSku -All -ErrorAction SilentlyContinue
+    if ($subscribedSkus) {
+        foreach ($s in $subscribedSkus) {
+            $skuDict[$s.SkuId] = $s.SkuPartNumber
+        }
+    }
 }
 catch {
-    Write-Error "Failed to connect to MSOnline: $_"
+    Write-Verbose "No se pudo obtener el catalogo completo de SKUs: $_"
+}
+
+# 2. Obtener usuarios y sus licencias asignadas
+Write-Host "Obteniendo usuarios y licencias asignadas..." -ForegroundColor Cyan
+
+try {
+    $users = Get-MgUser -All -Property Id,DisplayName,UserPrincipalName,AccountEnabled,Department,UsageLocation,AssignedLicenses -ErrorAction Stop
+}
+catch {
+    Write-Error "Error al consultar usuarios desde Microsoft Graph: $_"
     exit
 }
 
-Write-Host "Retrieving User Licenses..." -ForegroundColor Cyan
-
-$users = Get-MsolUser -All
 $results = @()
-
 $total = $users.Count
 $i = 0
 
+Write-Host "Procesando $total usuarios..." -ForegroundColor Yellow
+
 foreach ($u in $users) {
     $i++
-    Write-Progress -Activity "Auditing Licenses" -Status "$($u.DisplayName)" -PercentComplete (($i / $total) * 100)
-    
-    $licenseNames = if ($u.Licenses) { ($u.Licenses.AccountSkuId -join ", ") } else { "None" }
-    
+    Write-Progress -Activity "Auditando Licencias" -Status "$($u.DisplayName)" -PercentComplete (($i / $total) * 100)
+
+    $assignedNames = @()
+    if ($u.AssignedLicenses) {
+        foreach ($lic in $u.AssignedLicenses) {
+            $skuName = if ($skuDict.ContainsKey($lic.SkuId)) { $skuDict[$lic.SkuId] } else { $lic.SkuId }
+            $assignedNames += $skuName
+        }
+    }
+
+    $isLicensed = ($assignedNames.Count -gt 0)
+
     $results += [PSCustomObject]@{
-        "User"          = $u.DisplayName
-        "UPN"           = $u.UserPrincipalName
-        "IsLicensed"    = $u.IsLicensed
-        "Licenses"      = $licenseNames
-        "Department"    = $u.Department
-        "UsageLocation" = $u.UsageLocation
+        "User"           = $u.DisplayName
+        "UPN"            = $u.UserPrincipalName
+        "AccountEnabled" = $u.AccountEnabled
+        "IsLicensed"     = $isLicensed
+        "LicenseCount"   = $assignedNames.Count
+        "Licenses"       = if ($assignedNames) { ($assignedNames -join ", ") } else { "None" }
+        "Department"     = $u.Department
+        "UsageLocation"  = $u.UsageLocation
     }
 }
 
-# --- Export ---
+# --- Exportacion ---
 if ($results.Count -gt 0) {
     Export-AdminReport -InputObject $results -ReportName "LicenseReport" -AutoOpen
 }
 else {
-    Write-Warning "No users found?"
+    Write-Warning "No se encontraron usuarios en el tenant."
 }
-Write-Host "Done."
+
+Write-Host "Finalizado." -ForegroundColor Green
